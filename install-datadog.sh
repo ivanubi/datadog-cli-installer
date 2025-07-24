@@ -393,6 +393,36 @@ get_user_inputs() {
     print_success "Configuration collected successfully!"
 }
 
+# Function to create a safe temporary file
+create_temp_file() {
+    local temp_file
+    
+    # Try different locations for temporary files
+    local temp_dirs=(
+        "${TMPDIR:-}"
+        "/tmp"
+        "/var/tmp"
+        "$HOME/.cache"
+        "$(pwd)"
+    )
+    
+    for temp_dir in "${temp_dirs[@]}"; do
+        if [[ -n "$temp_dir" && -d "$temp_dir" && -w "$temp_dir" ]]; then
+            if temp_file=$(mktemp "$temp_dir/datadog_install.XXXXXX" 2>/dev/null); then
+                echo "$temp_file"
+                return 0
+            fi
+        fi
+    done
+    
+    # Fallback: create a temporary file in current directory
+    temp_file="./datadog_install_tmp_$$_$(date +%s)"
+    touch "$temp_file" 2>/dev/null && echo "$temp_file" && return 0
+    
+    print_error "Failed to create temporary file"
+    return 1
+}
+
 # Function to verify installation script integrity
 verify_installation_script() {
     local script_url="$INSTALL_SCRIPT_URL"
@@ -400,7 +430,12 @@ verify_installation_script() {
     print_status "Verifying installation script integrity for $OS_TYPE..."
     
     # Download script to temporary location
-    local temp_script=$(mktemp)
+    local temp_script
+    if ! temp_script=$(create_temp_file); then
+        print_error "Failed to create temporary file"
+        return 1
+    fi
+    
     if ! curl -sL "$script_url" -o "$temp_script"; then
         print_error "Failed to download installation script from $script_url"
         rm -f "$temp_script"
@@ -750,7 +785,10 @@ verify_installation() {
     
     # Create a proper temporary file
     local temp_status
-    temp_status=$(mktemp)
+    if ! temp_status=$(create_temp_file); then
+        print_error "Failed to create temporary file for status check"
+        return 1
+    fi
     
     # Check agent status
     if sudo datadog-agent status > "$temp_status" 2>&1; then
