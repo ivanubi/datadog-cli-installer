@@ -1,147 +1,247 @@
-# PM2 Docker Application
+# Datadog Agent Installation Script
 
-This project demonstrates a Node.js application managed by PM2 running in a Docker container based on Ubuntu 22.04.
+A comprehensive shell script for automated installation and configuration of Datadog Agent with APM, distributed tracing, and log collection support for Ubuntu 22.04 and macOS systems.
 
-## Features
+## 🚀 Features
 
-- **Base Image**: Ubuntu 22.04 LTS
-- **Runtime**: Node.js 18.x
-- **Process Manager**: PM2 with cluster mode
-- **Application**: Express.js REST API
-- **Security**: Non-root user execution
-- **Health Checks**: Built-in health endpoints
+- ✅ **Cross-platform Support** - Works on Ubuntu 22.04 and macOS
+- ✅ **Interactive & Non-interactive Modes** - Flexible usage options
+- ✅ **Automatic Installation Check** - Detects existing Datadog installations
+- ✅ **Complete APM Setup** - Enables Application Performance Monitoring
+- ✅ **Distributed Tracing** - Configures trace collection and analysis
+- ✅ **Log Collection** - Monitors all .log files in specified directories
+- ✅ **Node.js Integration** - Pre-configured for Express/PM2 applications
+- ✅ **PM2 Integration** - Defaults to PM2 log directories
+- ✅ **Environment Support** - Handles development and production environments
+- ✅ **Validation & Error Handling** - Comprehensive checks and user feedback
 
-## Project Structure
+## 📋 Prerequisites
 
-```
-├── Dockerfile              # Docker image configuration
-├── app.js                 # Main Express application
-├── package.json           # Node.js dependencies
-├── ecosystem.config.js    # PM2 configuration
-├── .dockerignore         # Docker ignore file
-└── README.md             # This file
-```
+- **Operating System**: Ubuntu 22.04 LTS or macOS
+- **User Privileges**: User with sudo privileges (do not run as root)
+- **Network**: Internet connection for downloading packages
+- **Datadog Account**: Valid Datadog API key (32 characters)
 
-## API Endpoints
+## 🎯 Usage
 
-- `GET /` - Welcome message with app info
-- `GET /health` - Health check endpoint
-- `GET /info` - Detailed application information
+### Interactive Mode (Recommended)
 
-## Building the Docker Image
+Run the script without arguments to use the interactive mode:
 
 ```bash
-# Build the image
-docker build -t pm2-docker-app .
-
-# Build with a specific tag
-docker build -t pm2-docker-app:1.0.0 .
+./install-datadog.sh
 ```
 
-## Running the Container
+The script will prompt you for:
+- Datadog API Key (input hidden for security)
+- Logs directory path (default: `~/.pm2/logs`)
+- Service name for monitoring
+- Environment (development/production)
+- Node.js application port (default: 3000)
+- Datadog site region
 
-### Basic Run
+### Non-Interactive Mode
+
+Provide all arguments via command line for automated installations:
+
 ```bash
-# Run the container
-docker run -d -p 3000:3000 --name pm2-app pm2-docker-app
-
-# Run with custom port mapping
-docker run -d -p 8080:3000 --name pm2-app pm2-docker-app
+./install-datadog.sh \
+  --api-key your_32_char_api_key_here \
+  --logs-dir /var/log/myapp \
+  --service-name myapp \
+  --environment production \
+  --port 8080 \
+  --site datadoghq.com
 ```
 
-### Run with Environment Variables
+### Mixed Mode
+
+Provide some arguments and get prompted for the rest:
+
 ```bash
-docker run -d \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e PORT=3000 \
-  --name pm2-app \
-  pm2-docker-app
+./install-datadog.sh \
+  --api-key your_api_key_here \
+  --environment production \
+  --site eu1.datadoghq.com
 ```
 
-### Run with Volume for Logs
+## 🔧 Command Line Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--api-key` | `-k` | Datadog API Key (32 characters) | Interactive prompt |
+| `--logs-dir` | `-l` | Path to logs directory | `~/.pm2/logs` |
+| `--service-name` | `-s` | Service name for monitoring | Interactive prompt |
+| `--environment` | `-e` | Environment (development\|production) | Interactive prompt |
+| `--port` | `-p` | Node.js application port | `3000` |
+| `--site` | `-t` | Datadog site region | `datadoghq.com` |
+| `--help` | `-h` | Show help message | - |
+
+### Supported Datadog Sites
+
+- `datadoghq.com` (US1 - Default)
+- `us3.datadoghq.com` (US3)
+- `us5.datadoghq.com` (US5)
+- `eu1.datadoghq.com` (Europe)
+- `ap1.datadoghq.com` (Asia Pacific)
+
+## 📂 What the Script Does
+
+### 1. System Validation
+- Detects operating system (Ubuntu 22.04 or macOS)
+- Checks for required system utilities
+- Verifies user permissions (non-root with sudo)
+- Validates internet connectivity
+
+### 2. Installation Check
+- Detects existing Datadog Agent installations
+- Checks service status with `datadog-agent status`
+- Offers reconfiguration option for existing installations
+
+### 3. Datadog Agent Installation
+- Downloads and installs Datadog Agent 7 using official installation script
+- Handles different package managers (apt for Ubuntu, brew for macOS)
+- Verifies successful installation
+
+### 4. Configuration Setup
+
+#### Main Agent Configuration (`/etc/datadog-agent/datadog.yaml`)
+- API key configuration
+- Site/region settings
+- Hostname and tags
+- APM and tracing enablement
+- Log collection activation
+
+#### APM Configuration
+- Enables Application Performance Monitoring
+- Configures trace agent settings
+- Sets up distributed tracing
+- Optimizes for Node.js applications
+
+#### Log Collection Setup
+- Configures log file monitoring
+- Sets up log parsing rules
+- Creates service-specific log configurations
+- Handles PM2 log integration
+
+### 5. Permissions & Services
+- Sets appropriate file permissions
+- Configures log directory access
+- Starts Datadog Agent services
+- Validates service health
+
+### 6. Verification
+- Tests agent connectivity to Datadog
+- Validates configuration files
+- Confirms log collection setup
+- Provides status report
+
+## 🔗 Node.js Integration
+
+After installation, integrate Datadog tracing in your Node.js application:
+
+### 1. Install the tracing library
 ```bash
-docker run -d \
-  -p 3000:3000 \
-  -v $(pwd)/logs:/app/logs \
-  --name pm2-app \
-  pm2-docker-app
+npm install dd-trace
 ```
 
-## Managing the Container
+### 2. Initialize at the top of your main file
+```javascript
+const tracer = require('dd-trace').init({
+  service: 'your-service-name',
+  env: 'production',
+  version: '1.0.0'
+});
+```
+
+### 3. For PM2 applications, set environment variables
+```bash
+export DD_SERVICE=your-service-name
+export DD_ENV=production
+export DD_VERSION=1.0.0
+```
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+1. **Permission Denied**
+   - Ensure you're not running as root
+   - User must have sudo privileges
+
+2. **API Key Validation Failed**
+   - Verify API key is exactly 32 characters
+   - Check for trailing spaces or special characters
+
+3. **Logs Directory Not Found**
+   - Verify the path exists and is accessible
+   - For PM2 apps: `~/.pm2/logs` or `/home/user/.pm2/logs`
+
+4. **Agent Not Starting**
+   - Check system logs: `sudo journalctl -u datadog-agent`
+   - Validate configuration: `sudo datadog-agent configcheck`
+
+### Validation Commands
 
 ```bash
-# Check container status
-docker ps
+# Check agent status
+sudo datadog-agent status
+
+# Validate configuration
+sudo datadog-agent configcheck
+
+# Test connectivity
+sudo datadog-agent diagnose
 
 # View logs
-docker logs pm2-app
-
-# Follow logs in real-time
-docker logs -f pm2-app
-
-# Execute commands inside the container
-docker exec -it pm2-app bash
-
-# Check PM2 status inside the container
-docker exec pm2-app pm2 status
-
-# Stop the container
-docker stop pm2-app
-
-# Remove the container
-docker rm pm2-app
+sudo tail -f /var/log/datadog/agent.log
 ```
 
-## Testing the Application
+## 📁 Generated Files & Locations
 
-Once the container is running, you can test the endpoints:
+### Configuration Files
+- `/etc/datadog-agent/datadog.yaml` - Main configuration
+- `/etc/datadog-agent/conf.d/apm.yaml` - APM settings
+- `/etc/datadog-agent/conf.d/logs.yaml` - Log collection config
 
+### Log Files
+- `/var/log/datadog/agent.log` - Agent logs
+- `/var/log/datadog/trace-agent.log` - APM trace logs
+
+## 🔄 Uninstallation
+
+To remove Datadog Agent:
+
+### Ubuntu
 ```bash
-# Test the main endpoint
-curl http://localhost:3000
-
-# Test health check
-curl http://localhost:3000/health
-
-# Test info endpoint
-curl http://localhost:3000/info
+sudo apt-get remove datadog-agent
+sudo rm -rf /etc/datadog-agent
+sudo rm -rf /var/log/datadog
 ```
 
-## PM2 Features in this Setup
-
-- **Cluster Mode**: Utilizes all available CPU cores
-- **Auto Restart**: Automatically restarts on crashes
-- **Memory Management**: Restarts if memory usage exceeds 500MB
-- **Health Monitoring**: Built-in health checks
-- **Graceful Shutdown**: Proper cleanup on container stop
-- **Log Management**: Centralized logging configuration
-
-## Development
-
-For local development without Docker:
-
+### macOS
 ```bash
-# Install dependencies
-npm install
-
-# Run in development mode
-npm run dev
-
-# Start with PM2 locally
-npm run pm2
+sudo launchctl unload -w /Library/LaunchDaemons/com.datadoghq.agent.plist
+sudo rm -rf /opt/datadog-agent
+sudo rm -rf /usr/local/bin/datadog-agent
+sudo rm /Library/LaunchDaemons/com.datadoghq.agent.plist
 ```
 
-## Environment Variables
+## 📜 License
 
-- `NODE_ENV`: Application environment (default: production)
-- `PORT`: Server port (default: 3000)
+This script is provided as-is for Datadog Agent installation and configuration. Please refer to Datadog's official documentation and terms of service.
 
-## Docker Image Details
+## 🤝 Contributing
 
-- **Base**: Ubuntu 22.04
-- **Node.js**: 18.x LTS
-- **PM2**: Latest version
-- **User**: Non-root user (appuser)
-- **Working Directory**: /app
-- **Exposed Port**: 3000 
+For issues or improvements, please:
+1. Check existing Datadog documentation
+2. Test changes on supported platforms
+3. Follow shell scripting best practices
+4. Include appropriate error handling
+
+## 📚 Additional Resources
+
+- [Datadog Agent Documentation](https://docs.datadoghq.com/agent/)
+- [APM for Node.js](https://docs.datadoghq.com/tracing/setup_overview/setup/nodejs/)
+- [Log Collection](https://docs.datadoghq.com/logs/log_collection/)
+- [PM2 Integration](https://docs.datadoghq.com/integrations/pm2/)
