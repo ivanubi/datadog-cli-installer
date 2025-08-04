@@ -731,13 +731,34 @@ start_services() {
     print_status "Stopping any existing Datadog agent..."
     sudo datadog-agent stop 2>/dev/null || true
     
-    # Start the Datadog agent (redirect output to avoid hanging and log display)
+    # Force stop if needed (for stuck processes)
+    sudo pkill -f datadog-agent 2>/dev/null || true
+    sleep 2
+    
+    # Start the Datadog agent with better error handling
     print_status "Starting Datadog agent..."
-    if ! timeout 10 sudo datadog-agent start >/dev/null 2>&1; then
-        # If timeout or direct start fails, try starting in background
-        print_status "Direct start timed out, trying background start..."
-        sudo datadog-agent start >/dev/null 2>&1 &
-        disown 2>/dev/null || true  # Detach from shell
+    
+    # Try systemctl first (for systemd systems)
+    if command -v systemctl >/dev/null 2>&1; then
+        print_status "Using systemctl to start agent..."
+        if sudo systemctl start datadog-agent 2>/dev/null; then
+            print_success "Agent started via systemctl"
+        else
+            print_status "systemctl failed, trying direct start..."
+            # Fall back to direct start with timeout
+            if ! timeout 15 sudo datadog-agent start >/dev/null 2>&1; then
+                print_status "Direct start timed out, trying background start..."
+                sudo datadog-agent start >/dev/null 2>&1 &
+                disown 2>/dev/null || true
+            fi
+        fi
+    else
+        # For non-systemd systems, use direct start with timeout
+        if ! timeout 15 sudo datadog-agent start >/dev/null 2>&1; then
+            print_status "Direct start timed out, trying background start..."
+            sudo datadog-agent start >/dev/null 2>&1 &
+            disown 2>/dev/null || true
+        fi
     fi
     
     # Give the agent time to initialize
@@ -764,8 +785,26 @@ start_services() {
     done
     
     print_error "Failed to start Datadog agent after $max_attempts attempts!"
-    print_status "Check agent status with: sudo datadog-agent status"
-    print_status "Check logs for more details"
+    print_status "=== Troubleshooting Information ==="
+    print_status "1. Check agent status: sudo datadog-agent status"
+    print_status "2. Check agent logs: sudo datadog-agent logs"
+    print_status "3. Check system logs: sudo journalctl -u datadog-agent -n 50"
+    print_status "4. Check configuration: sudo datadog-agent configcheck"
+    print_status "5. Check permissions: ls -la /etc/datadog-agent/"
+    print_status "6. Check if agent is running: ps aux | grep datadog"
+    
+    # Try to get some diagnostic information
+    echo
+    print_status "=== Current Diagnostic Info ==="
+    echo "Processes:"
+    ps aux | grep datadog | grep -v grep || echo "No datadog processes found"
+    echo
+    echo "Configuration check:"
+    sudo datadog-agent configcheck 2>&1 | head -10 || echo "Config check failed"
+    echo
+    echo "Recent logs:"
+    sudo datadog-agent logs 2>&1 | tail -5 || echo "Could not retrieve logs"
+    
     exit 1
 }
 
