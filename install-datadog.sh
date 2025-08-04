@@ -622,6 +622,66 @@ EOF
 set_permissions() {
     print_status "Setting up proper permissions..."
     
+    # Fix configuration file permissions first (critical for agent startup)
+    print_status "Fixing configuration file permissions..."
+    
+    # Ensure dd-agent user and group exist (for Linux systems)
+    if [[ "$OS_TYPE" != "macos" ]]; then
+        if ! id "dd-agent" &>/dev/null; then
+            print_status "Creating dd-agent user..."
+            sudo useradd -r -s /bin/false dd-agent 2>/dev/null || true
+        fi
+        
+        if ! getent group dd-agent >/dev/null 2>&1; then
+            print_status "Creating dd-agent group..."
+            sudo groupadd dd-agent 2>/dev/null || true
+        fi
+        
+        # Set ownership to dd-agent user/group
+        if sudo chown -R dd-agent:dd-agent "$DATADOG_CONF_DIR" 2>/dev/null; then
+            print_success "Set ownership to dd-agent:dd-agent"
+        else
+            print_warning "Could not set ownership (dd-agent user/group may not exist)"
+        fi
+        
+        # Set appropriate permissions
+        if sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null; then
+            print_success "Set directory permissions to 755"
+        else
+            print_warning "Could not set directory permissions"
+        fi
+        
+        # Set specific permissions for configuration files (readable by everyone)
+        if sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
+            print_success "Set datadog.yaml permissions to 644 (readable by everyone)"
+        else
+            print_warning "Could not set datadog.yaml permissions"
+        fi
+        
+        # Verify the agent can read the configuration
+        print_status "Verifying configuration readability..."
+        if sudo -u dd-agent test -r "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
+            print_success "Agent can read configuration file"
+        else
+            print_error "Agent cannot read configuration file - permission issue detected"
+            print_status "This may cause the agent to hang during startup"
+            return 1
+        fi
+    else
+        # For macOS, use datadog-agent user
+        if sudo chown -R datadog-agent:datadog-agent "$DATADOG_CONF_DIR" 2>/dev/null; then
+            print_success "Set ownership to datadog-agent:datadog-agent (macOS)"
+        fi
+        
+        if sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null; then
+            print_success "Set directory permissions to 755"
+        fi
+        
+        if sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
+            print_success "Set datadog.yaml permissions to 644 (readable by everyone)"
+        fi
+    fi
+    
     # Add datadog-agent user to necessary groups to read logs
     if [[ -d "$LOGS_DIR" ]]; then
         # Get the owner of the logs directory using OS-appropriate command
@@ -726,6 +786,35 @@ except Exception as e:
 # Function to start and enable services
 start_services() {
     print_status "Starting Datadog agent service..."
+    
+    # Ensure proper permissions before starting (critical fix for permission issues)
+    print_status "Ensuring proper permissions before starting agent..."
+    
+    # Create dd-agent user and group if they don't exist (Linux systems)
+    if [[ "$OS_TYPE" != "macos" ]]; then
+        if ! id "dd-agent" &>/dev/null; then
+            print_status "Creating dd-agent user..."
+            sudo useradd -r -s /bin/false dd-agent 2>/dev/null || true
+        fi
+        
+        if ! getent group dd-agent >/dev/null 2>&1; then
+            print_status "Creating dd-agent group..."
+            sudo groupadd dd-agent 2>/dev/null || true
+        fi
+        
+        # Fix ownership and permissions
+        print_status "Fixing configuration file permissions..."
+        sudo chown -R dd-agent:dd-agent "$DATADOG_CONF_DIR" 2>/dev/null || true
+        sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null || true
+        sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null || true
+        
+        # Verify the agent can read the configuration
+        if ! sudo -u dd-agent test -r "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
+            print_error "Agent cannot read configuration file - critical permission issue"
+            print_status "Attempting to fix with more permissive settings..."
+            sudo chmod 666 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null || true
+        fi
+    fi
     
     # Stop the agent first to ensure clean start
     print_status "Stopping any existing Datadog agent..."
