@@ -573,7 +573,7 @@ configure_logs() {
     sudo tee "$DATADOG_CONF_DIR/conf.d/nodejs.d/conf.yaml" > /dev/null << EOF
 logs:
   - type: file
-    path: "$LOGS_DIR/*out*.log"
+    path: "$LOGS_DIR/out*.log"
     service: "$SERVICE_NAME"
     source: nodejs
     sourcecategory: sourcecode
@@ -586,7 +586,7 @@ logs:
         name: out_log_start_with_date
         pattern: \d{4}-\d{2}-\d{2}
   - type: file
-    path: "$LOGS_DIR/*error*.log"
+    path: "$LOGS_DIR/error*.log"
     service: "$SERVICE_NAME"
     source: nodejs
     sourcecategory: sourcecode
@@ -708,13 +708,102 @@ set_permissions() {
             fi
         fi
         
-        # Ensure logs directory is readable by datadog-agent
+        # Ensure logs directory is readable and executable by datadog-agent
         if ! sudo chmod -R +r "$LOGS_DIR" 2>/dev/null; then
             print_warning "Could not set read permissions on logs directory"
         fi
+        
+        # Critical: Set execute permissions on directories so agent can traverse them
+        if ! sudo find "$LOGS_DIR" -type d -exec chmod +x {} \; 2>/dev/null; then
+            print_warning "Could not set execute permissions on log directories"
+        fi
+        
+        # Ensure the parent directories are also executable
+        local current_dir="$LOGS_DIR"
+        while [[ "$current_dir" != "/" && "$current_dir" != "." ]]; do
+            if sudo test -d "$current_dir"; then
+                sudo chmod +x "$current_dir" 2>/dev/null || true
+            fi
+            current_dir=$(dirname "$current_dir")
+        done
     fi
     
     print_success "Permissions configured!"
+}
+
+# Function to fix log directory permissions specifically
+fix_log_permissions() {
+    print_status "Fixing log directory permissions for Datadog agent..."
+    
+    if [[ ! -d "$LOGS_DIR" ]]; then
+        print_warning "Logs directory does not exist: $LOGS_DIR"
+        return 0
+    fi
+    
+    # Show current permissions
+    print_status "Current log directory permissions:"
+    ls -la "$LOGS_DIR" | head -5
+    
+    # Set read permissions on all files
+    print_status "Setting read permissions on log files..."
+    sudo find "$LOGS_DIR" -type f -exec chmod 644 {} \; 2>/dev/null || true
+    
+    # Set execute permissions on all directories (critical for traversal)
+    print_status "Setting execute permissions on directories..."
+    sudo find "$LOGS_DIR" -type d -exec chmod 755 {} \; 2>/dev/null || true
+    
+    # Ensure parent directories are executable
+    print_status "Ensuring parent directories are executable..."
+    local current_dir="$LOGS_DIR"
+    while [[ "$current_dir" != "/" && "$current_dir" != "." ]]; do
+        if sudo test -d "$current_dir"; then
+            sudo chmod +x "$current_dir" 2>/dev/null || true
+        fi
+        current_dir=$(dirname "$current_dir")
+    done
+    
+    # Add datadog-agent to the owner's group if possible
+    if [[ "$OS_TYPE" != "macos" ]]; then
+        local log_owner
+        if log_owner=$(stat -c '%U' "$LOGS_DIR" 2>/dev/null); then
+            print_status "Log directory owner: $log_owner"
+            if [[ "$log_owner" != "datadog-agent" && "$log_owner" != "dd-agent" ]]; then
+                local log_group
+                if log_group=$(stat -c '%G' "$LOGS_DIR" 2>/dev/null); then
+                    print_status "Adding datadog-agent to group: $log_group"
+                    sudo usermod -a -G "$log_group" datadog-agent 2>/dev/null || true
+                    sudo usermod -a -G "$log_group" dd-agent 2>/dev/null || true
+                fi
+            fi
+        fi
+    fi
+    
+    # Test if datadog-agent can access the directory
+    print_status "Testing if agent can access log directory..."
+    if sudo -u datadog-agent test -r "$LOGS_DIR" 2>/dev/null; then
+        print_success "Agent can read log directory"
+    else
+        print_warning "Agent cannot read log directory, trying alternative permissions..."
+        sudo chmod 755 "$LOGS_DIR" 2>/dev/null || true
+    fi
+    
+    # Test if agent can read log files
+    print_status "Testing if agent can read log files..."
+    local test_file
+    test_file=$(find "$LOGS_DIR" -name "*.log" | head -1)
+    if [[ -n "$test_file" ]]; then
+        if sudo -u datadog-agent test -r "$test_file" 2>/dev/null; then
+            print_success "Agent can read log files"
+        else
+            print_warning "Agent cannot read log files, setting more permissive permissions..."
+            sudo chmod -R 666 "$LOGS_DIR"/*.log 2>/dev/null || true
+        fi
+    fi
+    
+    print_status "New log directory permissions:"
+    ls -la "$LOGS_DIR" | head -5
+    
+    print_success "Log directory permissions fixed!"
 }
 
 # Function to validate configuration
@@ -1052,6 +1141,7 @@ main() {
     configure_datadog
     configure_logs
     set_permissions
+    fix_log_permissions
     validate_configuration
     start_services
     verify_installation
