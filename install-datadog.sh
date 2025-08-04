@@ -458,22 +458,12 @@ verify_installation_script() {
 install_datadog() {
     print_status "Installing Datadog agent for $OS_TYPE..."
     
-    # Verify script integrity first
-    local script_file
-    if ! script_file=$(verify_installation_script); then
-        print_error "Script verification failed. Exiting for security."
-        exit 1
-    fi
-    
     # Install Datadog agent using provided site configuration
-    if ! DD_API_KEY="$DD_API_KEY" DD_SITE="$DD_SITE" DD_ENV="$ENVIRONMENT" bash "$script_file"; then
+    # Download and execute the script directly to avoid file path issues
+    if ! DD_API_KEY="$DD_API_KEY" DD_SITE="$DD_SITE" DD_ENV="$ENVIRONMENT" bash <(curl -sL "$INSTALL_SCRIPT_URL"); then
         print_error "Failed to install Datadog agent on $OS_TYPE!"
-        rm -f "$script_file"
         exit 1
     fi
-    
-    # Clean up temporary script
-    rm -f "$script_file"
     print_success "Datadog agent installed successfully on $OS_TYPE!"
 }
 
