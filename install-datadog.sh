@@ -41,7 +41,7 @@ OPTIONS:
     -k, --api-key KEY       Datadog API Key (32 characters)
     -l, --logs-dir PATH     Path to logs directory (default: ~/.pm2/logs)
     -s, --service-name NAME Service name for monitoring
-    -e, --environment ENV   Environment (development|production|sandbox)
+    -e, --environment ENV   Environment (any value)
     -p, --port PORT         Node.js application port (default: 3000)
     -t, --site SITE         Datadog site (datadoghq.com|us3.datadoghq.com|us5.datadoghq.com|eu1.datadoghq.com|ap1.datadoghq.com)
     -o, --out-pattern PAT   Output log file pattern (default: out*.log)
@@ -345,15 +345,18 @@ get_user_inputs() {
     # Environment
     if [[ -n "${ENVIRONMENT:-}" ]]; then
         print_status "Using provided environment: $ENVIRONMENT"
-        if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" && "$ENVIRONMENT" != "sandbox" ]]; then
-            print_error "Environment must be either 'development', 'production', or 'sandbox'!"
+        if ! validate_yaml_string "$ENVIRONMENT" "Environment"; then
+            print_error "Invalid environment provided"
             exit 1
         fi
     else
-        while [[ "${ENVIRONMENT:-}" != "development" && "${ENVIRONMENT:-}" != "production" && "${ENVIRONMENT:-}" != "sandbox" ]]; do
-            read -p "Enter environment (development/production/sandbox): " ENVIRONMENT
-            if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" && "$ENVIRONMENT" != "sandbox" ]]; then
-                print_error "Environment must be either 'development', 'production', or 'sandbox'!"
+        while [[ -z "${ENVIRONMENT:-}" ]]; do
+            read -p "Enter environment (e.g., development, production, staging, test): " ENVIRONMENT
+            if [[ -z "$ENVIRONMENT" ]]; then
+                print_error "Environment cannot be empty!"
+            elif ! validate_yaml_string "$ENVIRONMENT" "Environment"; then
+                ENVIRONMENT=""
+                continue
             fi
         done
     fi
