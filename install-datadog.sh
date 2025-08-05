@@ -44,6 +44,9 @@ OPTIONS:
     -e, --environment ENV   Environment (development|production|sandbox)
     -p, --port PORT         Node.js application port (default: 3000)
     -t, --site SITE         Datadog site (datadoghq.com|us3.datadoghq.com|us5.datadoghq.com|eu1.datadoghq.com|ap1.datadoghq.com)
+    -o, --out-pattern PAT   Output log file pattern (default: out*.log)
+    -r, --error-pattern PAT Error log file pattern (default: error*.log)
+    -c, --log-source SOURCE Log source identifier (default: nodejs)
     -h, --help              Show this help message
 
 EXAMPLES:
@@ -51,10 +54,10 @@ EXAMPLES:
     $0
 
     # Non-interactive mode with all arguments
-    $0 -k your_api_key_here -l /var/log/myapp -s myapp -e production -p 8080 -t datadoghq.com
+    $0 -k your_api_key_here -l /var/log/myapp -s myapp -e production -p 8080 -t datadoghq.com -o "out*.log" -r "error*.log" -c nodejs
 
     # Mixed mode (some arguments, prompts for missing ones)
-    $0 -k your_api_key_here -e production -t datadoghq.com
+    $0 -k your_api_key_here -e production -t datadoghq.com -o "combined*.log" -r "error*.log"
 
 NOTES:
     - If any required option is not provided, the script will prompt interactively
@@ -90,6 +93,18 @@ parse_arguments() {
                 ;;
             -t|--site)
                 DD_SITE="$2"
+                shift 2
+                ;;
+            -o|--out-pattern)
+                OUT_PATTERN="$2"
+                shift 2
+                ;;
+            -r|--error-pattern)
+                ERROR_PATTERN="$2"
+                shift 2
+                ;;
+            -c|--log-source)
+                LOG_SOURCE="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -390,6 +405,63 @@ get_user_inputs() {
         done
     fi
     
+    # Output log pattern
+    if [[ -n "${OUT_PATTERN:-}" ]]; then
+        print_status "Using provided output log pattern: $OUT_PATTERN"
+        if ! validate_yaml_string "$OUT_PATTERN" "Output log pattern"; then
+            print_error "Invalid output log pattern provided"
+            exit 1
+        fi
+    else
+        while [[ -z "${OUT_PATTERN:-}" ]]; do
+            read -p "Enter output log file pattern (default: out*.log): " OUT_PATTERN
+            if [[ -z "$OUT_PATTERN" ]]; then
+                OUT_PATTERN="out*.log"
+            elif ! validate_yaml_string "$OUT_PATTERN" "Output log pattern"; then
+                OUT_PATTERN=""
+                continue
+            fi
+        done
+    fi
+    
+    # Error log pattern
+    if [[ -n "${ERROR_PATTERN:-}" ]]; then
+        print_status "Using provided error log pattern: $ERROR_PATTERN"
+        if ! validate_yaml_string "$ERROR_PATTERN" "Error log pattern"; then
+            print_error "Invalid error log pattern provided"
+            exit 1
+        fi
+    else
+        while [[ -z "${ERROR_PATTERN:-}" ]]; do
+            read -p "Enter error log file pattern (default: error*.log): " ERROR_PATTERN
+            if [[ -z "$ERROR_PATTERN" ]]; then
+                ERROR_PATTERN="error*.log"
+            elif ! validate_yaml_string "$ERROR_PATTERN" "Error log pattern"; then
+                ERROR_PATTERN=""
+                continue
+            fi
+        done
+    fi
+    
+    # Log source
+    if [[ -n "${LOG_SOURCE:-}" ]]; then
+        print_status "Using provided log source: $LOG_SOURCE"
+        if ! validate_yaml_string "$LOG_SOURCE" "Log source"; then
+            print_error "Invalid log source provided"
+            exit 1
+        fi
+    else
+        while [[ -z "${LOG_SOURCE:-}" ]]; do
+            read -p "Enter log source identifier (default: nodejs): " LOG_SOURCE
+            if [[ -z "$LOG_SOURCE" ]]; then
+                LOG_SOURCE="nodejs"
+            elif ! validate_yaml_string "$LOG_SOURCE" "Log source"; then
+                LOG_SOURCE=""
+                continue
+            fi
+        done
+    fi
+    
     print_success "Configuration collected successfully!"
 }
 
@@ -573,9 +645,9 @@ configure_logs() {
     sudo tee "$DATADOG_CONF_DIR/conf.d/nodejs.d/conf.yaml" > /dev/null << EOF
 logs:
   - type: file
-    path: "$LOGS_DIR/out*.log"
+    path: "$LOGS_DIR/$OUT_PATTERN"
     service: "$SERVICE_NAME"
-    source: nodejs
+    source: $LOG_SOURCE
     sourcecategory: sourcecode
     tags:
       - env:$ENVIRONMENT
@@ -586,9 +658,9 @@ logs:
         name: out_log_start_with_date
         pattern: \d{4}-\d{2}-\d{2}
   - type: file
-    path: "$LOGS_DIR/error*.log"
+    path: "$LOGS_DIR/$ERROR_PATTERN"
     service: "$SERVICE_NAME"
-    source: nodejs
+    source: $LOG_SOURCE
     sourcecategory: sourcecode
     tags:
       - env:$ENVIRONMENT
