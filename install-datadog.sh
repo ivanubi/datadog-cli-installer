@@ -41,7 +41,7 @@ OPTIONS:
     -k, --api-key KEY       Datadog API Key (32 characters)
     -l, --logs-dir PATH     Path to logs directory (default: ~/.pm2/logs)
     -s, --service-name NAME Service name for monitoring
-    -e, --environment ENV   Environment (development|production)
+    -e, --environment ENV   Environment (development|production|sandbox)
     -p, --port PORT         Node.js application port (default: 3000)
     -t, --site SITE         Datadog site (datadoghq.com|us3.datadoghq.com|us5.datadoghq.com|eu1.datadoghq.com|ap1.datadoghq.com)
     -h, --help              Show this help message
@@ -330,15 +330,15 @@ get_user_inputs() {
     # Environment
     if [[ -n "${ENVIRONMENT:-}" ]]; then
         print_status "Using provided environment: $ENVIRONMENT"
-        if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" ]]; then
-            print_error "Environment must be either 'development' or 'production'!"
+        if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" && "$ENVIRONMENT" != "sandbox" ]]; then
+            print_error "Environment must be either 'development', 'production', or 'sandbox'!"
             exit 1
         fi
     else
-        while [[ "${ENVIRONMENT:-}" != "development" && "${ENVIRONMENT:-}" != "production" ]]; do
-            read -p "Enter environment (development/production): " ENVIRONMENT
-            if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" ]]; then
-                print_error "Environment must be either 'development' or 'production'!"
+        while [[ "${ENVIRONMENT:-}" != "development" && "${ENVIRONMENT:-}" != "production" && "${ENVIRONMENT:-}" != "sandbox" ]]; do
+            read -p "Enter environment (development/production/sandbox): " ENVIRONMENT
+            if [[ "$ENVIRONMENT" != "development" && "$ENVIRONMENT" != "production" && "$ENVIRONMENT" != "sandbox" ]]; then
+                print_error "Environment must be either 'development', 'production', or 'sandbox'!"
             fi
         done
     fi
