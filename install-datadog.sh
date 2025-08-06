@@ -2,6 +2,7 @@
 
 # Datadog Agent Installation and Configuration Script for Ubuntu 22 and macOS
 # This script installs Datadog Agent and configures APM, tracing, and log collection
+# FIXED VERSION: Solves permission issues with /tmp directory
 
 set -euo pipefail
 
@@ -124,19 +125,19 @@ parse_arguments() {
 validate_yaml_string() {
     local input="$1"
     local field_name="$2"
-    
+
     # Check for potentially dangerous characters
     if [[ "$input" =~ [\"\'\\\$\\\|\&\;\(\)\<\>\[\]\{\}] ]] || [[ "$input" == *'`'* ]]; then
         print_error "$field_name contains invalid characters that could break YAML configuration"
         return 1
     fi
-    
+
     # Check for reasonable length
     if [[ ${#input} -gt 100 ]]; then
         print_error "$field_name is too long (max 100 characters)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -144,20 +145,20 @@ validate_yaml_string() {
 validate_path() {
     local path="$1"
     local field_name="$2"
-    
+
     # Check for path injection attempts
     if [[ "$path" =~ \.\./|\$\(|\\\`|\| ]]; then
         print_error "$field_name contains potentially dangerous path characters"
         return 1
     fi
-    
+
     # Expand and validate path
     path=$(eval echo "$path")
     if [[ ! "$path" = /* ]]; then
         print_error "$field_name must be an absolute path"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -179,13 +180,13 @@ detect_os() {
 # Function to check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
-    
+
     # Check if curl is available
     if ! command -v curl &> /dev/null; then
         print_error "curl is required but not installed. Please install curl first."
         exit 1
     fi
-    
+
     # Check service management availability based on OS
     if [[ "$OS_TYPE" == "macos" ]]; then
         # Check if launchctl is available (should be on all macOS systems)
@@ -200,20 +201,20 @@ check_requirements() {
             exit 1
         fi
     fi
-    
+
     # Check sudo privileges
     if ! sudo -n true 2>/dev/null; then
         print_error "This script requires sudo privileges. Please ensure you can run sudo commands."
         exit 1
     fi
-    
+
     print_success "System requirements check passed for $OS_TYPE!"
 }
 
 # Function to check if Datadog agent is already installed
 check_datadog_installed() {
     print_status "Checking if Datadog agent is already installed..."
-    
+
     if command -v datadog-agent &> /dev/null; then
         print_status "Datadog agent found. Checking status..."
         if sudo datadog-agent status &> /dev/null; then
@@ -237,7 +238,7 @@ check_datadog_installed() {
 # Function to get user inputs (modified to support command line arguments)
 get_user_inputs() {
     print_status "Validating and collecting configuration..."
-    
+
     # API Key
     if [[ -n "${DD_API_KEY:-}" ]]; then
         print_status "Using provided API key"
@@ -267,7 +268,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Logs directory with PM2 default
     if [[ -n "${LOGS_DIR:-}" ]]; then
         print_status "Using provided logs directory: $LOGS_DIR"
@@ -283,18 +284,18 @@ get_user_inputs() {
             if [[ -z "$LOGS_DIR" ]]; then
                 LOGS_DIR="$HOME/.pm2/logs"
             fi
-            
+
             # Validate and expand path
             if ! validate_path "$LOGS_DIR" "Logs directory"; then
                 LOGS_DIR=""
                 continue
             fi
-            
+
             LOGS_DIR=$(eval echo "$LOGS_DIR")
             break
         done
     fi
-    
+
     # Validate logs directory
     if [[ ! -d "$LOGS_DIR" ]]; then
         print_warning "Directory $LOGS_DIR does not exist."
@@ -322,7 +323,7 @@ get_user_inputs() {
             fi
         fi
     fi
-    
+
     # Service name
     if [[ -n "${SERVICE_NAME:-}" ]]; then
         print_status "Using provided service name: $SERVICE_NAME"
@@ -341,7 +342,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Environment
     if [[ -n "${ENVIRONMENT:-}" ]]; then
         print_status "Using provided environment: $ENVIRONMENT"
@@ -360,7 +361,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Node.js port
     if [[ -n "${NODE_PORT:-}" ]]; then
         print_status "Using provided Node.js port: $NODE_PORT"
@@ -380,7 +381,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Datadog site
     if [[ -n "${DD_SITE:-}" ]]; then
         print_status "Using provided Datadog site: $DD_SITE"
@@ -407,7 +408,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Output log pattern
     if [[ -n "${OUT_PATTERN:-}" ]]; then
         print_status "Using provided output log pattern: $OUT_PATTERN"
@@ -426,7 +427,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Error log pattern
     if [[ -n "${ERROR_PATTERN:-}" ]]; then
         print_status "Using provided error log pattern: $ERROR_PATTERN"
@@ -445,7 +446,7 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     # Log source
     if [[ -n "${LOG_SOURCE:-}" ]]; then
         print_status "Using provided log source: $LOG_SOURCE"
@@ -464,14 +465,14 @@ get_user_inputs() {
             fi
         done
     fi
-    
+
     print_success "Configuration collected successfully!"
 }
 
 # Function to create a safe temporary file
 create_temp_file() {
     local temp_file
-    
+
     # Try different locations for temporary files
     local temp_dirs=(
         "${TMPDIR:-}"
@@ -480,7 +481,7 @@ create_temp_file() {
         "$HOME/.cache"
         "$(pwd)"
     )
-    
+
     for temp_dir in "${temp_dirs[@]}"; do
         if [[ -n "$temp_dir" && -d "$temp_dir" && -w "$temp_dir" ]]; then
             if temp_file=$(mktemp "$temp_dir/datadog_install.XXXXXX" 2>/dev/null); then
@@ -489,77 +490,183 @@ create_temp_file() {
             fi
         fi
     done
-    
+
     # Fallback: create a temporary file in current directory
     temp_file="./datadog_install_tmp_$$_$(date +%s)"
     touch "$temp_file" 2>/dev/null && echo "$temp_file" && return 0
-    
+
     print_error "Failed to create temporary file"
     return 1
 }
 
-# Function to verify installation script integrity
-verify_installation_script() {
-    local script_url="$INSTALL_SCRIPT_URL"
-    
-    print_status "Verifying installation script integrity for $OS_TYPE..."
-    
-    # Download script to temporary location
-    local temp_script
-    if ! temp_script=$(create_temp_file); then
-        print_error "Failed to create temporary file"
-        return 1
+# Function to fix temporary directory permissions
+fix_tmp_permissions() {
+    print_status "Fixing temporary directory permissions..."
+
+    # Ensure /tmp is writable
+    if [[ -d "/tmp" ]]; then
+        sudo chmod 1777 /tmp 2>/dev/null || true
     fi
-    
-    if ! curl -sL "$script_url" -o "$temp_script"; then
-        print_error "Failed to download installation script from $script_url"
-        rm -f "$temp_script"
-        return 1
+
+    # Create policy directory if needed
+    if [[ ! -d "/tmp/policy" ]]; then
+        sudo mkdir -p /tmp/policy 2>/dev/null || true
+        sudo chmod 777 /tmp/policy 2>/dev/null || true
     fi
-    
-    # Note: In a real implementation, you would verify against known good hash
-    # For now, we'll just check if the file was downloaded successfully
-    if [[ ! -s "$temp_script" ]]; then
-        print_error "Downloaded script is empty"
-        rm -f "$temp_script"
-        return 1
-    fi
-    
-    echo "$temp_script"
-    return 0
+
+    # Pre-create the policy file with proper permissions
+    sudo touch /tmp/policy-do-not-start-service-rc.d 2>/dev/null || true
+    sudo chmod 666 /tmp/policy-do-not-start-service-rc.d 2>/dev/null || true
 }
 
-# Function to install Datadog agent
+# Function to install Datadog agent using manual method
+install_datadog_manual() {
+    print_status "Installing Datadog agent using manual method..."
+
+    if [[ "$OS_TYPE" == "linux" ]]; then
+        # Add Datadog APT repository
+        print_status "Adding Datadog APT repository..."
+
+        # Install required packages
+        sudo apt-get update
+        sudo apt-get install -y apt-transport-https curl gnupg
+
+        # Add Datadog GPG keys
+        sudo sh -c "echo 'deb [signed-by=/usr/share/keyrings/datadog-archive-keyring.gpg] https://apt.datadoghq.com/ stable 7' > /etc/apt/sources.list.d/datadog.list"
+        sudo touch /usr/share/keyrings/datadog-archive-keyring.gpg
+        sudo chmod a+r /usr/share/keyrings/datadog-archive-keyring.gpg
+        curl https://keys.datadoghq.com/DATADOG_APT_KEY_CURRENT.public | sudo gpg --no-default-keyring --keyring /usr/share/keyrings/datadog-archive-keyring.gpg --import --batch
+        curl https://keys.datadoghq.com/DATADOG_APT_KEY_06462314.public | sudo gpg --no-default-keyring --keyring /usr/share/keyrings/datadog-archive-keyring.gpg --import --batch
+        curl https://keys.datadoghq.com/DATADOG_APT_KEY_C0962C7D.public | sudo gpg --no-default-keyring --keyring /usr/share/keyrings/datadog-archive-keyring.gpg --import --batch
+        curl https://keys.datadoghq.com/DATADOG_APT_KEY_F14F620E.public | sudo gpg --no-default-keyring --keyring /usr/share/keyrings/datadog-archive-keyring.gpg --import --batch
+
+        # Update and install
+        sudo apt-get update
+
+        # Prevent services from starting during installation
+        echo '#!/bin/sh
+exit 101' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+        sudo chmod +x /usr/sbin/policy-rc.d
+
+        # Install the agent
+        sudo apt-get install -y datadog-agent
+
+        # Remove the policy file
+        sudo rm -f /usr/sbin/policy-rc.d
+
+        print_success "Datadog agent installed successfully using manual method!"
+    else
+        print_error "Manual installation method is only available for Linux systems"
+        return 1
+    fi
+}
+
+# Enhanced install function with better error handling
 install_datadog() {
     print_status "Installing Datadog agent for $OS_TYPE..."
-    
-    # Install Datadog agent using provided site configuration
-    # Download and execute the script directly to avoid file path issues
-    if ! DD_API_KEY="$DD_API_KEY" DD_SITE="$DD_SITE" DD_ENV="$ENVIRONMENT" bash <(curl -sL "$INSTALL_SCRIPT_URL"); then
-        print_error "Failed to install Datadog agent on $OS_TYPE!"
-        exit 1
+
+    # Fix temporary directory permissions first
+    fix_tmp_permissions
+
+    # Try the official installer first
+    print_status "Attempting installation using official script..."
+
+    # Create a wrapper script to handle the installation
+    local wrapper_script
+    if ! wrapper_script=$(create_temp_file); then
+        print_error "Failed to create wrapper script"
+        return 1
     fi
-    print_success "Datadog agent installed successfully on $OS_TYPE!"
+
+    # Write the wrapper script
+    cat > "$wrapper_script" << 'WRAPPER_EOF'
+#!/bin/bash
+# Wrapper script to handle Datadog installation with better error handling
+
+# Fix permissions
+sudo chmod 1777 /tmp 2>/dev/null || true
+sudo touch /tmp/policy-do-not-start-service-rc.d 2>/dev/null || true
+sudo chmod 666 /tmp/policy-do-not-start-service-rc.d 2>/dev/null || true
+
+# Run the actual installation
+export DD_API_KEY="$1"
+export DD_SITE="$2"
+export DD_ENV="$3"
+export DD_INSTALL_ONLY="true"
+
+# Download and run the installation script
+if curl -sL "$4" | sudo -E bash; then
+    echo "Installation completed successfully"
+    exit 0
+else
+    echo "Installation failed"
+    exit 1
+fi
+WRAPPER_EOF
+
+    chmod +x "$wrapper_script"
+
+    # Try to run the installation
+    if "$wrapper_script" "$DD_API_KEY" "$DD_SITE" "$ENVIRONMENT" "$INSTALL_SCRIPT_URL"; then
+        rm -f "$wrapper_script"
+        print_success "Datadog agent installed successfully!"
+        return 0
+    else
+        print_warning "Official installation script failed, trying alternative method..."
+        rm -f "$wrapper_script"
+
+        # Try manual installation for Linux
+        if [[ "$OS_TYPE" == "linux" ]]; then
+            if install_datadog_manual; then
+                return 0
+            fi
+        fi
+
+        # Last resort: download and execute with different approach
+        print_status "Trying direct installation with permission fixes..."
+
+        # Create a temporary directory with proper permissions
+        local temp_dir
+        temp_dir=$(mktemp -d /tmp/datadog_install.XXXXXX)
+        chmod 777 "$temp_dir"
+
+        # Download the script
+        local install_script="$temp_dir/install.sh"
+        if curl -sL "$INSTALL_SCRIPT_URL" -o "$install_script"; then
+            chmod +x "$install_script"
+
+            # Run with environment variables
+            if DD_API_KEY="$DD_API_KEY" DD_SITE="$DD_SITE" DD_ENV="$ENVIRONMENT" DD_INSTALL_ONLY="true" sudo -E bash "$install_script"; then
+                rm -rf "$temp_dir"
+                print_success "Datadog agent installed successfully!"
+                return 0
+            fi
+        fi
+
+        rm -rf "$temp_dir"
+        print_error "All installation methods failed"
+        return 1
+    fi
 }
 
 # Function to configure Datadog agent
 configure_datadog() {
     print_status "Configuring Datadog agent..."
-    
+
     # Set configuration path based on OS
     if [[ "$OS_TYPE" == "macos" ]]; then
         DATADOG_CONF_DIR="/opt/datadog-agent/etc"
     else
         DATADOG_CONF_DIR="/etc/datadog-agent"
     fi
-    
+
     # Backup original config if it exists
     if [[ -f "$DATADOG_CONF_DIR/datadog.yaml" ]]; then
         if ! sudo cp "$DATADOG_CONF_DIR/datadog.yaml" "$DATADOG_CONF_DIR/datadog.yaml.backup.$(date +%Y%m%d_%H%M%S)"; then
             print_warning "Failed to backup existing configuration"
         fi
     fi
-    
+
     # Create main configuration
     sudo tee "$DATADOG_CONF_DIR/datadog.yaml" > /dev/null << EOF
 # Datadog Agent Configuration
@@ -581,7 +688,7 @@ apm_config:
   apm_non_local_traffic: true
   max_traces_per_second: 10
   trace_buffer: 5000
-  
+
 # Process Collection
 process_config:
   enabled: "true"
@@ -637,13 +744,13 @@ EOF
 # Function to configure log collection
 configure_logs() {
     print_status "Configuring log collection for directory: $LOGS_DIR"
-    
+
     # Create logs configuration directory
     if ! sudo mkdir -p "$DATADOG_CONF_DIR/conf.d/nodejs.d"; then
         print_error "Failed to create configuration directory"
         exit 1
     fi
-    
+
     # Configure log collection for individual PM2 out and error logs (better log level separation)
     sudo tee "$DATADOG_CONF_DIR/conf.d/nodejs.d/conf.yaml" > /dev/null << EOF
 logs:
@@ -696,43 +803,43 @@ EOF
 # Function to set proper permissions
 set_permissions() {
     print_status "Setting up proper permissions..."
-    
+
     # Fix configuration file permissions first (critical for agent startup)
     print_status "Fixing configuration file permissions..."
-    
+
     # Ensure dd-agent user and group exist (for Linux systems)
     if [[ "$OS_TYPE" != "macos" ]]; then
         if ! id "dd-agent" &>/dev/null; then
             print_status "Creating dd-agent user..."
             sudo useradd -r -s /bin/false dd-agent 2>/dev/null || true
         fi
-        
+
         if ! getent group dd-agent >/dev/null 2>&1; then
             print_status "Creating dd-agent group..."
             sudo groupadd dd-agent 2>/dev/null || true
         fi
-        
+
         # Set ownership to dd-agent user/group
         if sudo chown -R dd-agent:dd-agent "$DATADOG_CONF_DIR" 2>/dev/null; then
             print_success "Set ownership to dd-agent:dd-agent"
         else
             print_warning "Could not set ownership (dd-agent user/group may not exist)"
         fi
-        
+
         # Set appropriate permissions
         if sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null; then
             print_success "Set directory permissions to 755"
         else
             print_warning "Could not set directory permissions"
         fi
-        
+
         # Set specific permissions for configuration files (readable by everyone)
         if sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
             print_success "Set datadog.yaml permissions to 644 (readable by everyone)"
         else
             print_warning "Could not set datadog.yaml permissions"
         fi
-        
+
         # Verify the agent can read the configuration
         print_status "Verifying configuration readability..."
         if sudo -u dd-agent test -r "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
@@ -747,16 +854,16 @@ set_permissions() {
         if sudo chown -R datadog-agent:datadog-agent "$DATADOG_CONF_DIR" 2>/dev/null; then
             print_success "Set ownership to datadog-agent:datadog-agent (macOS)"
         fi
-        
+
         if sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null; then
             print_success "Set directory permissions to 755"
         fi
-        
+
         if sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
             print_success "Set datadog.yaml permissions to 644 (readable by everyone)"
         fi
     fi
-    
+
     # Add datadog-agent user to necessary groups to read logs
     if [[ -d "$LOGS_DIR" ]]; then
         # Get the owner of the logs directory using OS-appropriate command
@@ -764,7 +871,7 @@ set_permissions() {
             print_warning "Could not determine logs directory owner"
             return 0
         fi
-        
+
         if [[ "$LOG_OWNER" != "datadog-agent" ]]; then
             # Add datadog-agent to the owner's group with OS-specific commands
             if LOG_GROUP=$($STAT_GROUP_CMD "$LOGS_DIR" 2>/dev/null); then
@@ -782,17 +889,17 @@ set_permissions() {
                 fi
             fi
         fi
-        
+
         # Ensure logs directory is readable and executable by datadog-agent
         if ! sudo chmod -R +r "$LOGS_DIR" 2>/dev/null; then
             print_warning "Could not set read permissions on logs directory"
         fi
-        
+
         # Critical: Set execute permissions on directories so agent can traverse them
         if ! sudo find "$LOGS_DIR" -type d -exec chmod +x {} \; 2>/dev/null; then
             print_warning "Could not set execute permissions on log directories"
         fi
-        
+
         # Ensure the parent directories are also executable
         local current_dir="$LOGS_DIR"
         while [[ "$current_dir" != "/" && "$current_dir" != "." ]]; do
@@ -802,31 +909,31 @@ set_permissions() {
             current_dir=$(dirname "$current_dir")
         done
     fi
-    
+
     print_success "Permissions configured!"
 }
 
 # Function to fix log directory permissions specifically
 fix_log_permissions() {
     print_status "Fixing log directory permissions for Datadog agent..."
-    
+
     if [[ ! -d "$LOGS_DIR" ]]; then
         print_warning "Logs directory does not exist: $LOGS_DIR"
         return 0
     fi
-    
+
     # Show current permissions
     print_status "Current log directory permissions:"
     ls -la "$LOGS_DIR" | head -5
-    
+
     # Set read permissions on all files
     print_status "Setting read permissions on log files..."
     sudo find "$LOGS_DIR" -type f -exec chmod 644 {} \; 2>/dev/null || true
-    
+
     # Set execute permissions on all directories (critical for traversal)
     print_status "Setting execute permissions on directories..."
     sudo find "$LOGS_DIR" -type d -exec chmod 755 {} \; 2>/dev/null || true
-    
+
     # Ensure parent directories are executable
     print_status "Ensuring parent directories are executable..."
     local current_dir="$LOGS_DIR"
@@ -836,7 +943,7 @@ fix_log_permissions() {
         fi
         current_dir=$(dirname "$current_dir")
     done
-    
+
     # Add datadog-agent to the owner's group if possible
     if [[ "$OS_TYPE" != "macos" ]]; then
         local log_owner
@@ -852,7 +959,7 @@ fix_log_permissions() {
             fi
         fi
     fi
-    
+
     # Test if datadog-agent can access the directory
     print_status "Testing if agent can access log directory..."
     if sudo -u datadog-agent test -r "$LOGS_DIR" 2>/dev/null; then
@@ -861,7 +968,7 @@ fix_log_permissions() {
         print_warning "Agent cannot read log directory, trying alternative permissions..."
         sudo chmod 755 "$LOGS_DIR" 2>/dev/null || true
     fi
-    
+
     # Test if agent can read log files
     print_status "Testing if agent can read log files..."
     local test_file
@@ -874,29 +981,29 @@ fix_log_permissions() {
             sudo chmod -R 666 "$LOGS_DIR"/*.log 2>/dev/null || true
         fi
     fi
-    
+
     print_status "New log directory permissions:"
     ls -la "$LOGS_DIR" | head -5
-    
+
     print_success "Log directory permissions fixed!"
 }
 
 # Function to validate configuration
 validate_configuration() {
     print_status "Validating Datadog configuration..."
-    
+
     # Check if configuration file exists
     if [[ ! -f "$DATADOG_CONF_DIR/datadog.yaml" ]]; then
         print_error "Configuration file not found: $DATADOG_CONF_DIR/datadog.yaml"
         return 1
     fi
-    
+
     # Check if configuration file is readable
     if [[ ! -r "$DATADOG_CONF_DIR/datadog.yaml" ]]; then
         print_error "Configuration file is not readable: $DATADOG_CONF_DIR/datadog.yaml"
         return 1
     fi
-    
+
     # Check if configuration file is valid YAML using Python
     if command -v python3 &> /dev/null; then
         # First check if PyYAML is installed
@@ -918,7 +1025,7 @@ except Exception as e:
     print(f'Error reading file: {e}')
     sys.exit(1)
 " 2>&1)
-            
+
             local exit_code=$?
             if [[ $exit_code -ne 0 ]]; then
                 print_error "YAML configuration validation failed:"
@@ -934,7 +1041,7 @@ except Exception as e:
     else
         print_warning "Python3 not found, skipping YAML validation"
     fi
-    
+
     # Basic file content validation
     if grep -q "api_key:" "$DATADOG_CONF_DIR/datadog.yaml" && \
        grep -q "logs_enabled:" "$DATADOG_CONF_DIR/datadog.yaml" && \
@@ -950,28 +1057,28 @@ except Exception as e:
 # Function to start and enable services
 start_services() {
     print_status "Starting Datadog agent service..."
-    
+
     # Ensure proper permissions before starting (critical fix for permission issues)
     print_status "Ensuring proper permissions before starting agent..."
-    
+
     # Create dd-agent user and group if they don't exist (Linux systems)
     if [[ "$OS_TYPE" != "macos" ]]; then
         if ! id "dd-agent" &>/dev/null; then
             print_status "Creating dd-agent user..."
             sudo useradd -r -s /bin/false dd-agent 2>/dev/null || true
         fi
-        
+
         if ! getent group dd-agent >/dev/null 2>&1; then
             print_status "Creating dd-agent group..."
             sudo groupadd dd-agent 2>/dev/null || true
         fi
-        
+
         # Fix ownership and permissions
         print_status "Fixing configuration file permissions..."
         sudo chown -R dd-agent:dd-agent "$DATADOG_CONF_DIR" 2>/dev/null || true
         sudo chmod -R 755 "$DATADOG_CONF_DIR" 2>/dev/null || true
         sudo chmod 644 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null || true
-        
+
         # Verify the agent can read the configuration
         if ! sudo -u dd-agent test -r "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null; then
             print_error "Agent cannot read configuration file - critical permission issue"
@@ -979,18 +1086,18 @@ start_services() {
             sudo chmod 666 "$DATADOG_CONF_DIR/datadog.yaml" 2>/dev/null || true
         fi
     fi
-    
+
     # Stop the agent first to ensure clean start
     print_status "Stopping any existing Datadog agent..."
     sudo datadog-agent stop 2>/dev/null || true
-    
+
     # Force stop if needed (for stuck processes)
     sudo pkill -f datadog-agent 2>/dev/null || true
     sleep 2
-    
+
     # Start the Datadog agent with better error handling
     print_status "Starting Datadog agent..."
-    
+
     # Try systemctl first (for systemd systems)
     if command -v systemctl >/dev/null 2>&1; then
         print_status "Using systemctl to start agent..."
@@ -1013,30 +1120,30 @@ start_services() {
             disown 2>/dev/null || true
         fi
     fi
-    
+
     # Give the agent time to initialize
     sleep 5
-    
+
     # Wait for service to start
     print_status "Waiting for agent to start..."
     local max_attempts=30
     local attempt=0
-    
+
     while [[ $attempt -lt $max_attempts ]]; do
         # Check if agent is running by testing status command
         if sudo datadog-agent status >/dev/null 2>&1; then
             print_success "Datadog agent is running!"
             return 0
         fi
-        
+
         sleep 2
         ((attempt++))
-        
+
         if [[ $((attempt % 5)) -eq 0 ]]; then
             print_status "Still waiting... (attempt $attempt/$max_attempts)"
         fi
     done
-    
+
     print_error "Failed to start Datadog agent after $max_attempts attempts!"
     print_status "=== Troubleshooting Information ==="
     print_status "1. Check agent status: sudo datadog-agent status"
@@ -1045,7 +1152,7 @@ start_services() {
     print_status "4. Check configuration: sudo datadog-agent configcheck"
     print_status "5. Check permissions: ls -la /etc/datadog-agent/"
     print_status "6. Check if agent is running: ps aux | grep datadog"
-    
+
     # Try to get some diagnostic information
     echo
     print_status "=== Current Diagnostic Info ==="
@@ -1057,25 +1164,25 @@ start_services() {
     echo
     echo "Recent logs:"
     sudo datadog-agent logs 2>&1 | tail -5 || echo "Could not retrieve logs"
-    
+
     exit 1
 }
 
 # Function to verify installation
 verify_installation() {
     print_status "Verifying Datadog agent installation..."
-    
+
     # Create a proper temporary file
     local temp_status
     if ! temp_status=$(create_temp_file); then
         print_error "Failed to create temporary file for status check"
         return 1
     fi
-    
+
     # Check agent status
     if sudo datadog-agent status > "$temp_status" 2>&1; then
         print_success "Datadog agent status check passed!"
-        
+
         # Show key information
         echo
         print_status "=== Datadog Agent Status Summary ==="
@@ -1084,7 +1191,7 @@ verify_installation() {
         else
             print_warning "Could not extract status summary"
         fi
-        
+
         print_success "Installation and configuration completed successfully!"
         echo
         print_status "=== Configuration Summary ==="
@@ -1104,12 +1211,12 @@ verify_installation() {
         echo "3. Install Datadog tracing library: npm install dd-trace"
         echo "4. Add tracing to your app.js: require('dd-trace').init()"
         echo "5. Check your Datadog dashboard at https://app.$DD_SITE"
-        
+
     else
         print_error "Datadog agent status check failed!"
         print_status "Status output:"
         cat "$temp_status"
-        
+
         # Check if it's an API key issue
         if grep -qi "api.*key.*invalid\|403\|unauthorized" "$temp_status"; then
             show_troubleshooting_guide
@@ -1121,11 +1228,11 @@ verify_installation() {
                 print_status "Check logs with: sudo journalctl -u datadog-agent -f"
             fi
         fi
-        
+
         rm -f "$temp_status"
         exit 1
     fi
-    
+
     # Clean up temporary file
     rm -f "$temp_status"
 }
@@ -1186,32 +1293,32 @@ show_nodejs_instructions() {
 # Main execution
 main() {
     echo
-    print_status "=== Datadog Agent Installation Script for Ubuntu 22 and macOS ==="
+    print_status "=== Datadog Agent Installation Script for Ubuntu 22 and macOS (FIXED VERSION) ==="
     echo
-    
+
     # Parse command line arguments
     parse_arguments "$@"
-    
+
     # Detect OS and set appropriate commands
     detect_os
-    
+
     # Check system requirements
     check_requirements
-    
+
     # Check if already installed
     ALREADY_INSTALLED=0
     if check_datadog_installed; then
         ALREADY_INSTALLED=1
     fi
-    
+
     # Get user inputs (or validate provided arguments)
     get_user_inputs
-    
+
     # Install if not already installed
     if [[ $ALREADY_INSTALLED -eq 0 ]]; then
         install_datadog
     fi
-    
+
     # Configure Datadog
     configure_datadog
     configure_logs
@@ -1221,11 +1328,11 @@ main() {
     start_services
     verify_installation
     show_nodejs_instructions
-    
+
     echo
     print_success "🎉 Datadog agent installation and configuration completed!"
     print_status "Visit your Datadog dashboard to see metrics and logs."
 }
 
 # Run main function
-main "$@" 
+main "$@"
